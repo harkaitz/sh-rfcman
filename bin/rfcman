@@ -1,0 +1,145 @@
+#!/bin/sh -e
+#L:
+#L:  MIT License
+#L:  
+#l:  Bug reports, feature requests to gemini|https://harkadev.com/oss
+#l:  Copyright (c) 2022 Harkaitz Agirre, harkaitz.aguirre@gmail.com
+#L:
+#L:  Permission is hereby granted, free of charge, to any person obtaining
+#L:  a copy of this software and associated documentation files (the
+#L:  "Software"), to deal in the Software without restriction, including
+#L:  without limitation the rights to use, copy, modify, merge, publish,
+#L:  distribute, sublicense, and/or sell copies of the Software, and to
+#L:  permit persons to whom the Software is furnished to do so, subject to
+#L:  the following conditions:
+#L:
+#L:  The above copyright notice and this permission notice shall be
+#L:  included in all copies or substantial portions of the Software.
+#L:
+#L:  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+#L:  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+#L:  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+#L:  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+#L:  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+#L:  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+#L:  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+##:
+#h: Usage: $0 [OPTS...] [rfc|bcp|fyi|ien|std]{3261|index} ...
+#h:
+#h: Search and read RFC documents from the command line.
+#h:
+#h:     -V : Show configuration.
+#h:     -m : Mark specified rfcs.
+#h:     -M : Unmark specified rfcs.
+#h:     -l : List marked RFCs.
+##:
+rfcman() {
+    local a='' u='' f='' h=''
+    local opt_V='' opt_l='' opt_m='' opt_M=''
+    local OPTIND optopt
+    ## Parse command line arguments.
+    while getopts "VlmM" optopt; do
+        case $optopt in
+            V)  opt_V=y;;
+            l)  opt_l=y;;
+            m)  opt_m=y;;
+            M)  opt_M=y;;
+            \?) return 1;;
+        esac
+    done
+    shift $(( $OPTIND - 1 ))
+    ## Show configuration.
+    if test -n "${opt_V}"; then
+        rfcman_show_variables
+        return 1
+    fi
+    ## List files.
+    if test -n "${opt_l}" && test -d "${RFCMAN_PATH}"; then
+        for f in `find "${RFCMAN_PATH}" -iregex '.*\.m' | sed 's|\.m$||'`; do
+            printf '%-10s : ' "`basename "${f}" .txt`"
+            if test -f "${f}"; then
+                h="`sed -n '/^ \{1,30\}[^ ]/{s|^ *||p;q;}' "${f}"`"
+            else
+                h=""
+            fi
+            echo "${h}"
+        done
+    fi
+    ## Download RFCs.
+    for a in "$@"; do
+        u="`rfceditor_url "${a}"`"
+        f="${RFCMAN_PATH}/`basename "${u}"`"
+        rfcman_curl "${u}" "${f}"
+        if test -n "${opt_m}"; then
+            touch "${f}.m"
+        elif test -n "${opt_M}"; then
+            rm "${f}.m"
+        elif test -t 1; then
+            ${RFCMAN_PAGER} "${f}"
+        else
+            cat "${f}"
+        fi
+    done
+}
+rfcman_show_variables() {
+    printf '%-20s : %s\n'                 \
+           RFCMAN_PATH  "${RFCMAN_PATH}"  \
+           RFCMAN_PAGER "${RFCMAN_PAGER}"
+}
+rfcman_calc_variables() {
+    RFCMAN_PATH="${RFCMAN_PATH:-${HOME}/.local/cache/rfcman}"
+    RFCMAN_PAGER="${RFCMAN_PAGER:-less -RS}"
+}
+rfcman_curl() {
+    local u="$1" f="$2"
+    if ! which "curl" >/dev/null 2>&1; then
+        echo "${SCRNAME}: error: Please install 'curl'." >&2
+        return 1
+    fi
+    if test ! -e "${f}"; then
+        echo "${SCRNAME}: Downloading ${u} ..." >&2
+        curl -s -o "${f}.tmp" "${u}"
+        if grep 'Object not found!' "${f}.tmp" >/dev/null 2>&1; then
+            rm -f "${f}.tmp"
+            echo "${SCRNAME}: Not found." >&2
+            return 1
+        else
+            mv "${f}.tmp" "${f}"
+        fi
+    fi
+}
+rfceditor_url() {
+    local m="https://www.rfc-editor.org" p="${1}"
+    case "${p}" in
+        rfc*index|index) echo "${m}/rfc/rfc-index.txt"     ;;
+        bcp*index)       echo "${m}/rfc/bcp/bcp-index.txt" ;;
+        fyi*index)       echo "${m}/rfc/fyi/fyi-index.txt" ;;
+        ien*index)       echo "${m}/rfc/ien/ien-index.txt" ;;
+        std*index)       echo "${m}/rfc/std/std-index.txt" ;;
+        bcp*)            echo "${m}/rfc/bcp/bcp${p}.txt"   ;;
+        fyi*)            echo "${m}/rfc/fyi/fyi${p}.txt"   ;;
+        ien*)            echo "${m}/rfc/ien/ien${p}.txt"   ;;
+        std*)            echo "${m}/rfc/ien/std${p}.txt"   ;;
+        rfc*)            echo "${m}/rfc/${p}.txt"          ;;
+        *)               echo "${m}/rfc/rfc${p}.txt"       ;;
+    esac
+}
+
+
+
+## -----------------------------------------------------------------------------
+rfcman_calc_variables
+SCRNAME="`basename "$0"`"
+if test @"${SCRNAME}" = @"rfcman";then
+    case "${1}" in
+        ''|-h|--help)
+            sed -n 's/^ *#h: \{0,1\}//p' "$0" | sed "s|\\\$0|${SCRNAME}|g"
+            echo ""
+            sed -n 's/^ *#l: \{0,2\}//p' "$0"
+            ;;
+        *)
+            rfcman "$@"
+            ;;
+    esac
+fi
+
